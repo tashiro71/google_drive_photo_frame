@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive フォトアルバム</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        .container {
+            text-align: center;
+            max-width: 1200px;
+            width: 90%;
+            padding: 20px;
+        }
+        h1 {
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        button {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            border-radius: 50px;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        #pauseButton {
+            background: #ff6b6b;
+            color: white;
+        }
+        .settings {
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .settings label {
+            font-size: 16px;
+        }
+        .settings input {
+            padding: 8px 15px;
+            font-size: 16px;
+            border: none;
+            border-radius: 25px;
+            width: 80px;
+            text-align: center;
+        }
+        #imageContainer {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            margin: 20px 0;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #currentImage {
+            max-width: 100%;
+            max-height: 90vh;
+            border-radius: 10px;
+            display: none;
+        }
+        #status {
+            margin: 20px 0;
+            font-size: 18px;
+            min-height: 30px;
+        }
+        .hidden {
+            display: none;
+        }
+        #imageInfo {
+            color: #333;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📸 Google Drive フォトアルバム</h1>
+        
+        <div id="status">初期化中...</div>
+        
+        <div id="authSection">
+            <button id="authButton" disabled>Google でログイン</button>
+        </div>
+        
+        <div id="folderSection" class="hidden">
+            <button id="selectFolderButton">フォルダを選択</button>
+        </div>
+        
+        <div id="controls" class="hidden">
+            <div class="settings">
+                <label for="intervalInput">表示間隔:</label>
+                <input type="number" id="intervalInput" min="1" max="60" value="5">
+                <label>秒</label>
+            </div>
+            <button id="startButton">スライドショー開始</button>
+            <button id="pauseButton" class="hidden">一時停止</button>
+            <button id="nextButton" class="hidden">次の画像</button>
+        </div>
+        
+        <div id="imageContainer" class="hidden">
+            <img id="currentImage" alt="Photo">
+            <div id="imageInfo"></div>
+        </div>
+    </div>
+
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    <script>
+        // ここにあなたのクライアントIDを入力してください
+        const CLIENT_ID = '625890919803-er1k7avgmsrbpu6qk9e7t0dnedrlcs12.apps.googleusercontent.com';
+        // Google Picker APIキー（同じプロジェクトで取得）
+        const API_KEY = 'AIzaSyDiEinI5bMSkBeahQikOusHt2U8erspktQ';
+        const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+        
+        let tokenClient;
+        let accessToken = null;
+        let pickerInited = false;
+        let gisInited = false;
+        let selectedFolderId = null;
+        let imageFiles = [];
+        let currentImageIndex = 0;
+        let isPaused = false;
+        let slideshowInterval = null;
+        let intervalSeconds = 5;
+
+        // GAPI初期化
+        function gapiLoaded() {
+            gapi.load('client:picker', initializePicker);
+        }
+
+        async function initializePicker() {
+            await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
+            pickerInited = true;
+            maybeEnableButtons();
+        }
+
+        // GIS初期化
+        function gisLoaded() {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: '', // 後で設定
+            });
+            gisInited = true;
+            maybeEnableButtons();
+        }
+
+        function maybeEnableButtons() {
+            if (pickerInited && gisInited) {
+                document.getElementById('authButton').disabled = false;
+                document.getElementById('status').textContent = 'Google アカウントでログインしてください';
+            }
+        }
+
+        // 認証ボタンクリック
+        document.getElementById('authButton').addEventListener('click', handleAuthClick);
+
+        function handleAuthClick() {
+            tokenClient.callback = async (resp) => {
+                if (resp.error !== undefined) {
+                    document.getElementById('status').textContent = 'エラー: ' + resp.error;
+                    throw (resp);
+                }
+                accessToken = resp.access_token;
+                gapi.client.setToken({access_token: accessToken});
+                onAuthSuccess();
+            };
+
+            if (gapi.client.getToken() === null) {
+                tokenClient.requestAccessToken({prompt: 'consent'});
+            } else {
+                tokenClient.requestAccessToken({prompt: ''});
+            }
+        }
+
+        function onAuthSuccess() {
+            document.getElementById('status').textContent = '認証成功！画像が入ったフォルダを選択してください';
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('folderSection').classList.remove('hidden');
+        }
+
+        // フォルダ選択ボタン
+        document.getElementById('selectFolderButton').addEventListener('click', showPicker);
+
+        function showPicker() {
+            const picker = new google.picker.PickerBuilder()
+                .addView(google.picker.ViewId.FOLDERS)
+                .setOAuthToken(accessToken)
+                .setDeveloperKey(API_KEY)
+                .setCallback(pickerCallback)
+                .build();
+            picker.setVisible(true);
+        }
+
+        async function pickerCallback(data) {
+            if (data.action === google.picker.Action.PICKED) {
+                selectedFolderId = data.docs[0].id;
+                document.getElementById('status').textContent = '画像を読み込んでいます...';
+                await loadImages();
+                
+                if (imageFiles.length > 0) {
+                    document.getElementById('folderSection').classList.add('hidden');
+                    document.getElementById('controls').classList.remove('hidden');
+                    document.getElementById('imageContainer').classList.remove('hidden');
+                    document.getElementById('status').textContent = `${imageFiles.length}枚の画像が見つかりました`;
+                } else {
+                    document.getElementById('status').textContent = 'このフォルダに画像ファイルが見つかりませんでした';
+                }
+            }
+        }
+
+        async function loadImages() {
+            try {
+                const response = await gapi.client.drive.files.list({
+                    'q': `'${selectedFolderId}' in parents and mimeType contains 'image/' and trashed=false`,
+                    'fields': 'files(id, name, mimeType)',
+                    'pageSize': 1000
+                });
+                
+                imageFiles = response.result.files || [];
+                shuffleArray(imageFiles);
+                console.log(`${imageFiles.length}枚の画像を読み込みました`);
+            } catch (error) {
+                console.error('Error loading images:', error);
+                document.getElementById('status').textContent = 'エラー: 画像の読み込みに失敗しました';
+            }
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        async function displayImage(index) {
+            if (imageFiles.length === 0) return;
+            
+            const file = imageFiles[index];
+            const img = document.getElementById('currentImage');
+            const info = document.getElementById('imageInfo');
+            
+            try {
+                const token = gapi.client.getToken();
+                
+                if (!token) {
+                    info.textContent = 'セッションが切れました。ページをリロードしてください。';
+                    if (slideshowInterval) {
+                        clearInterval(slideshowInterval);
+                    }
+                    return;
+                }
+                
+                const response = await fetch(
+                    `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token.access_token}`
+                        }
+                    }
+                );
+                
+                if (response.status === 401) {
+                    info.textContent = 'セッションが切れました。ページをリロードして再ログインしてください。';
+                    if (slideshowInterval) {
+                        clearInterval(slideshowInterval);
+                    }
+                    document.getElementById('status').textContent = '⚠️ セッションが切れました。ページをリロードしてください。';
+                    return;
+                }
+                
+                const blob = await response.blob();
+                const imageUrl = URL.createObjectURL(blob);
+                
+                img.onload = () => {
+                    img.style.display = 'block';
+                };
+                img.src = imageUrl;
+                info.textContent = file.name;
+                
+            } catch (error) {
+                console.error('Error displaying image:', error);
+                info.textContent = '画像の読み込みに失敗しました: ' + file.name;
+            }
+        }
+
+        document.getElementById('startButton').addEventListener('click', () => {
+            if (imageFiles.length === 0) return;
+            
+            intervalSeconds = parseInt(document.getElementById('intervalInput').value) || 5;
+            
+            isPaused = false;
+            document.getElementById('startButton').classList.add('hidden');
+            document.getElementById('pauseButton').classList.remove('hidden');
+            document.getElementById('nextButton').classList.remove('hidden');
+            document.getElementById('intervalInput').disabled = true;
+            
+            currentImageIndex = 0;
+            displayImage(currentImageIndex);
+            
+            slideshowInterval = setInterval(() => {
+                if (!isPaused) {
+                    currentImageIndex = (currentImageIndex + 1) % imageFiles.length;
+                    displayImage(currentImageIndex);
+                }
+            }, intervalSeconds * 1000);
+        });
+
+        document.getElementById('pauseButton').addEventListener('click', () => {
+            isPaused = !isPaused;
+            const pauseBtn = document.getElementById('pauseButton');
+            if (isPaused) {
+                pauseBtn.textContent = '再生';
+                pauseBtn.style.background = '#51cf66';
+            } else {
+                pauseBtn.textContent = '一時停止';
+                pauseBtn.style.background = '#ff6b6b';
+            }
+        });
+
+        document.getElementById('nextButton').addEventListener('click', () => {
+            currentImageIndex = (currentImageIndex + 1) % imageFiles.length;
+            displayImage(currentImageIndex);
+            
+            if (slideshowInterval) {
+                clearInterval(slideshowInterval);
+                slideshowInterval = setInterval(() => {
+                    if (!isPaused) {
+                        currentImageIndex = (currentImageIndex + 1) % imageFiles.length;
+                        displayImage(currentImageIndex);
+                    }
+                }, intervalSeconds * 1000);
+            }
+        });
+
+        // 初期化チェック
+        window.onload = () => {
+            if (CLIENT_ID === 'YOUR_CLIENT_ID' || API_KEY === 'YOUR_API_KEY') {
+                document.getElementById('status').textContent = '⚠️ CLIENT_IDとAPI_KEYを設定してください';
+                document.getElementById('authButton').disabled = true;
+            } else {
+                gapiLoaded();
+                gisLoaded();
+            }
+        };
+    </script>
+</body>
+</html>
