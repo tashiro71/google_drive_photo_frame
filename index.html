@@ -221,7 +221,8 @@
         function showPicker() {
             const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
                 .setIncludeFolders(true)
-                .setSelectFolderEnabled(true);
+                .setSelectFolderEnabled(true)
+                .setMimeTypes('application/vnd.google-apps.folder');
                 
             const picker = new google.picker.PickerBuilder()
                 .addView(view)
@@ -229,6 +230,8 @@
                 .setDeveloperKey(API_KEY)
                 .setCallback(pickerCallback)
                 .setOrigin(window.location.protocol + '//' + window.location.host)
+                .enableFeature(google.picker.Feature.NAV_HIDDEN)
+                .setTitle('画像が入っているフォルダを選択してください')
                 .build();
             picker.setVisible(true);
         }
