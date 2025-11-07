@@ -138,6 +138,7 @@
     </div>
 
     <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://apis.google.com/js/platform.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
     <script>
         // ここにあなたのクライアントIDを入力してください
@@ -148,7 +149,7 @@
         
         let tokenClient;
         let accessToken = null;
-        let pickerInited = false;
+        let gapiInited = false;
         let gisInited = false;
         let selectedFolderId = null;
         let imageFiles = [];
@@ -159,13 +160,14 @@
 
         // GAPI初期化
         function gapiLoaded() {
-            gapi.load('client:picker', initializePicker);
-        }
-
-        async function initializePicker() {
-            await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
-            pickerInited = true;
-            maybeEnableButtons();
+            gapi.load('client:picker', async () => {
+                await gapi.client.init({
+                    apiKey: API_KEY,
+                    discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+                });
+                gapiInited = true;
+                maybeEnableButtons();
+            });
         }
 
         // GIS初期化
@@ -180,7 +182,7 @@
         }
 
         function maybeEnableButtons() {
-            if (pickerInited && gisInited) {
+            if (gapiInited && gisInited) {
                 document.getElementById('authButton').disabled = false;
                 document.getElementById('status').textContent = 'Google アカウントでログインしてください';
             }
@@ -217,11 +219,16 @@
         document.getElementById('selectFolderButton').addEventListener('click', showPicker);
 
         function showPicker() {
+            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+                .setIncludeFolders(true)
+                .setSelectFolderEnabled(true);
+                
             const picker = new google.picker.PickerBuilder()
-                .addView(google.picker.ViewId.FOLDERS)
+                .addView(view)
                 .setOAuthToken(accessToken)
                 .setDeveloperKey(API_KEY)
                 .setCallback(pickerCallback)
+                .setOrigin(window.location.protocol + '//' + window.location.host)
                 .build();
             picker.setVisible(true);
         }
