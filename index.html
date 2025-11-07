@@ -219,10 +219,12 @@
         document.getElementById('selectFolderButton').addEventListener('click', showPicker);
 
         function showPicker() {
-            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+            // シンプルなフォルダ選択ビュー
+            const view = new google.picker.DocsView()
                 .setIncludeFolders(true)
+                .setMimeTypes('application/vnd.google-apps.folder')
                 .setSelectFolderEnabled(true)
-                .setMimeTypes('application/vnd.google-apps.folder');
+                .setMode(google.picker.DocsViewMode.LIST);  // リスト表示
                 
             const picker = new google.picker.PickerBuilder()
                 .addView(view)
@@ -230,8 +232,8 @@
                 .setDeveloperKey(API_KEY)
                 .setCallback(pickerCallback)
                 .setOrigin(window.location.protocol + '//' + window.location.host)
-                .enableFeature(google.picker.Feature.NAV_HIDDEN)
-                .setTitle('画像が入っているフォルダを選択してください')
+                .setTitle('フォルダを1回クリックして選択し、Selectボタンを押してください')
+                .enableFeature(google.picker.Feature.SIMPLE_UPLOAD_ENABLED)
                 .build();
             picker.setVisible(true);
         }
@@ -255,13 +257,36 @@
 
         async function loadImages() {
             try {
-                const response = await gapi.client.drive.files.list({
-                    'q': `'${selectedFolderId}' in parents and mimeType contains 'image/' and trashed=false`,
-                    'fields': 'files(id, name, mimeType)',
-                    'pageSize': 1000
-                });
+                imageFiles = [];
+                let pageToken = null;
                 
-                imageFiles = response.result.files || [];
+                // ページネーションで全画像を取得
+                do {
+                    const params = {
+                        'q': `'${selectedFolderId}' in parents and mimeType contains 'image/' and trashed=false`,
+                        'fields': 'files(id, name, mimeType), nextPageToken',
+                        'pageSize': 1000
+                    };
+                    
+                    if (pageToken) {
+                        params.pageToken = pageToken;
+                    }
+                    
+                    const response = await gapi.client.drive.files.list(params);
+                    
+                    if (response.result.files) {
+                        imageFiles = imageFiles.concat(response.result.files);
+                    }
+                    
+                    pageToken = response.result.nextPageToken;
+                    
+                    // 途中経過を表示
+                    if (pageToken) {
+                        document.getElementById('status').textContent = `画像を読み込み中... (${imageFiles.length}枚)`;
+                    }
+                    
+                } while (pageToken);
+                
                 shuffleArray(imageFiles);
                 console.log(`${imageFiles.length}枚の画像を読み込みました`);
             } catch (error) {
