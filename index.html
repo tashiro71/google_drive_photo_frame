@@ -198,6 +198,11 @@
                     throw (resp);
                 }
                 accessToken = resp.access_token;
+                
+                // トークンをセッションストレージに保存
+                sessionStorage.setItem('gdrive_access_token', accessToken);
+                sessionStorage.setItem('gdrive_token_expiry', Date.now() + (resp.expires_in * 1000));
+                
                 gapi.client.setToken({access_token: accessToken});
                 onAuthSuccess();
             };
@@ -207,6 +212,20 @@
             } else {
                 tokenClient.requestAccessToken({prompt: ''});
             }
+        }
+
+        function checkStoredToken() {
+            const storedToken = sessionStorage.getItem('gdrive_access_token');
+            const expiry = sessionStorage.getItem('gdrive_token_expiry');
+            
+            if (storedToken && expiry && Date.now() < parseInt(expiry)) {
+                // 有効なトークンが保存されている
+                accessToken = storedToken;
+                gapi.client.setToken({access_token: accessToken});
+                onAuthSuccess();
+                return true;
+            }
+            return false;
         }
 
         function onAuthSuccess() {
