@@ -145,7 +145,7 @@
         const CLIENT_ID = '625890919803-er1k7avgmsrbpu6qk9e7t0dnedrlcs12.apps.googleusercontent.com';
         // Google Picker APIキー（同じプロジェクトで取得）
         const API_KEY = 'AIzaSyDiEinI5bMSkBeahQikOusHt2U8erspktQ';
-        const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+        const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
         
         let tokenClient;
         let accessToken = null;
@@ -183,6 +183,11 @@
 
         function maybeEnableButtons() {
             if (gapiInited && gisInited) {
+                // 保存されたトークンをチェック
+                if (checkStoredToken()) {
+                    // 既に認証済み
+                    return;
+                }
                 document.getElementById('authButton').disabled = false;
                 document.getElementById('status').textContent = 'Google アカウントでログインしてください';
             }
@@ -279,6 +284,8 @@
                 imageFiles = [];
                 let pageToken = null;
                 
+                console.log('Loading images from folder:', selectedFolderId);
+                
                 // ページネーションで全画像を取得
                 do {
                     const params = {
@@ -291,7 +298,9 @@
                         params.pageToken = pageToken;
                     }
                     
+                    console.log('API request params:', params);
                     const response = await gapi.client.drive.files.list(params);
+                    console.log('API response:', response);
                     
                     if (response.result.files) {
                         imageFiles = imageFiles.concat(response.result.files);
@@ -310,6 +319,7 @@
                 console.log(`${imageFiles.length}枚の画像を読み込みました`);
             } catch (error) {
                 console.error('Error loading images:', error);
+                console.error('Error details:', error.result);
                 document.getElementById('status').textContent = 'エラー: 画像の読み込みに失敗しました';
             }
         }
